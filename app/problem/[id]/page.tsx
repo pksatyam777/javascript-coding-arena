@@ -1,351 +1,508 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft,
-  CheckCircle,
-  AlertCircle,
   Play,
-  FileText,
+  RotateCcw,
+  CheckCircle,
+  XCircle,
   Lightbulb,
-  ArrowRight,
-  Lock,
+  Clock,
+  Target,
   Trophy,
   Eye,
-  Timer,
-} from "lucide-react"
-import MonacoEditor from "@/components/monaco-editor"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { problems } from "@/lib/problems"
+  EyeOff
+} from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
+import CodeEditor from '@/components/monaco-editor';
+import { problems, type Problem } from '@/lib/problems';
 import {
   getUserProgress,
   updateUserProgress,
-  isProblemUnlocked,
-  isLevelUnlocked,
-  trackHintUsage,
   trackProblemAttempt,
-  BADGES,
-} from "@/lib/user-progress"
+  trackHintUsage,
+  isProblemUnlocked
+} from '@/lib/user-progress';
 
-export default function ProblemPage() {
-  const params = useParams()
-  const router = useRouter()
-  const problemId = params.id as string
+export default function ProblemDetailsPage() {
+  const params = useParams();
+  const router = useRouter();
+  const problemId = params.id as string;
 
-  const [code, setCode] = useState("")
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
-  const [isRunning, setIsRunning] = useState(false)
-  const [completed, setCompleted] = useState(false)
-  const [isUnlocked, setIsUnlocked] = useState(false)
-  const [startTime, setStartTime] = useState(Date.now())
-  const [hintsViewed, setHintsViewed] = useState(false)
-  const [newBadges, setNewBadges] = useState<string[]>([])
-  const [showBadgeAlert, setShowBadgeAlert] = useState(false)
-
-  const problem = problems.find((p) => p.id === problemId)
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const [code, setCode] = useState('');
+  const [output, setOutput] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  const [testResults, setTestResults] = useState<{
+    passed: boolean;
+    message: string;
+  } | null>(null);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [startTime, setStartTime] = useState(Date.now());
+  const [showHints, setShowHints] = useState(false);
+  const [hintsViewed, setHintsViewed] = useState(false);
+  const [currentHintIndex, setCurrentHintIndex] = useState(0);
+  const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
-    if (!problem) {
-      router.push("/")
-      return
+    // Find the problem
+    const foundProblem = problems.find((p) => p.id === problemId);
+    if (!foundProblem) {
+      router.push('/dashboard');
+      return;
     }
 
-    const levelUnlocked = isLevelUnlocked(problem.level)
-    if (!levelUnlocked) {
-      router.push("/")
-      return
+    // Check if problem is unlocked
+    if (!isProblemUnlocked(problemId, problems)) {
+      router.push('/dashboard');
+      return;
     }
 
-    const unlocked = isProblemUnlocked(problemId, problems)
-    setIsUnlocked(unlocked)
+    setProblem(foundProblem);
+    setCode(foundProblem.starterCode || '// Write your solution here\n\n');
+    setStartTime(Date.now());
 
-    if (!unlocked) {
-      router.push(`/problems/${problem.level}`)
-      return
-    }
+    // Check if already completed
+    const progress = getUserProgress();
+    setIsCompleted(!!progress.completedProblems[problemId]);
+  }, [problemId, router]);
 
-    const userProgress = getUserProgress()
-    setCompleted(!!userProgress.completedProblems?.[problemId])
-    setStartTime(Date.now())
+  const runCode = async () => {
+    if (!problem) return;
 
-    setCode(problem.starterCode || `// Write your solution for "${problem.title}" here\n\n`)
-  }, [problem, problemId, router])
-
-  if (!problem) {
-    return null
-  }
-
-  if (!isUnlocked) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card className="max-w-md mx-auto">
-          <CardHeader className="text-center">
-            <Lock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <CardTitle>Problem Locked</CardTitle>
-            <CardDescription>You need to complete the previous problem to unlock this challenge.</CardDescription>
-          </CardHeader>
-          <CardFooter>
-            <Link href={`/problems/${problem.level}`} className="w-full">
-              <Button className="w-full">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Problems
-              </Button>
-            </Link>
-          </CardFooter>
-        </Card>
-      </div>
-    )
-  }
-
-  const runCode = () => {
-    setIsRunning(true)
-    setResult(null)
-
-    // Track attempt
-    trackProblemAttempt(problemId, startTime)
+    setIsRunning(true);
+    setOutput('');
+    setTestResults(null);
 
     try {
-      const userFunction = new Function(code + `\n${problem.testCode}`)
-      userFunction()
+      // Track attempt
+      trackProblemAttempt(problemId, startTime);
+      setAttempts((prev) => prev + 1);
 
-      setResult({
-        success: true,
-        message: "🎉 All tests passed! Great job!",
-      })
+      // Create a function that combines user code with test code
+      const fullCode = `
+        ${code}
+        
+        ${problem.testCode}
+      `;
 
-      if (!completed) {
-        const oldProgress = getUserProgress()
-        const updatedProgress = updateUserProgress(problemId, problems, startTime)
-        setCompleted(true)
+      // Execute the code in a safe environment
+      const result = await executeCode(fullCode);
 
-        // Check for new badges
-        const earnedNewBadges = updatedProgress.earnedBadges.filter(
-          (badge) => !oldProgress.earnedBadges.includes(badge),
-        )
+      if (result.success) {
+        setTestResults({ passed: true, message: 'All tests passed! 🎉' });
+        setOutput('✅ All tests passed successfully!');
 
-        if (earnedNewBadges.length > 0) {
-          setNewBadges(earnedNewBadges)
-          setShowBadgeAlert(true)
-          setTimeout(() => setShowBadgeAlert(false), 5000)
+        // Mark as completed and update progress
+        if (!isCompleted) {
+          updateUserProgress(problemId, problems, startTime);
+          setIsCompleted(true);
         }
+      } else {
+        setTestResults({
+          passed: false,
+          message: result.error || 'Tests failed'
+        });
+        setOutput(`❌ ${result.error}`);
       }
     } catch (error) {
-      setResult({
-        success: false,
-        message: error instanceof Error ? error.message : "An error occurred",
-      })
-    } finally {
-      setIsRunning(false)
+      setTestResults({ passed: false, message: 'Runtime error occurred' });
+      setOutput(
+        `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
-  }
 
-  const handleHintView = () => {
-    if (!hintsViewed) {
-      setHintsViewed(true)
-      trackHintUsage(problemId)
+    setIsRunning(false);
+  };
+
+  const executeCode = async (
+    code: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      try {
+        // Create a new function to execute the code safely
+        const func = new Function(code);
+        func();
+        resolve({ success: true });
+      } catch (error) {
+        resolve({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+  };
+
+  const resetCode = () => {
+    if (
+      problem &&
+      confirm(
+        'Are you sure you want to reset your code? This action cannot be undone.'
+      )
+    ) {
+      setCode(problem.starterCode || '// Write your solution here\n\n');
+      setOutput('');
+      setTestResults(null);
+      setStartTime(Date.now());
     }
+  };
+
+  const toggleHints = () => {
+    if (!showHints && !hintsViewed) {
+      trackHintUsage(problemId);
+      setHintsViewed(true);
+    }
+    setShowHints(!showHints);
+  };
+
+  const nextHint = () => {
+    if (problem && currentHintIndex < problem.hints.length - 1) {
+      setCurrentHintIndex((prev) => prev + 1);
+    }
+  };
+
+  const prevHint = () => {
+    if (currentHintIndex > 0) {
+      setCurrentHintIndex((prev) => prev - 1);
+    }
+  };
+
+  if (!problem) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg">Loading problem...</div>
+        </div>
+      </div>
+    );
   }
 
-  const getNextProblem = () => {
-    const levelProblems = problems.filter((p) => p.level === problem.level)
-    const currentIndex = levelProblems.findIndex((p) => p.id === problemId)
-    return currentIndex < levelProblems.length - 1 ? levelProblems[currentIndex + 1] : null
-  }
-
-  const nextProblem = getNextProblem()
-  const isNextUnlocked = nextProblem ? isProblemUnlocked(nextProblem.id, problems) : false
-
-  const elapsedTime = Math.round((Date.now() - startTime) / (1000 * 60))
+  const getDifficultyColor = (level: string) => {
+    switch (level) {
+      case 'beginner':
+        return 'bg-green-500';
+      case 'intermediate':
+        return 'bg-yellow-500';
+      case 'advanced':
+        return 'bg-red-500';
+      default:
+        return 'bg-gray-500';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto py-6 px-4">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <Link href={`/problems/${problem.level}`}>
-            <Button variant="ghost" className="pl-0">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to {problem.level.charAt(0).toUpperCase() + problem.level.slice(1)} Problems
-            </Button>
-          </Link>
+          <Button
+            variant="ghost"
+            onClick={() => router.back()}
+            className="pl-0"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Timer className="h-4 w-4" />
-              {elapsedTime}m
-            </div>
+            {isCompleted && (
+              <Badge className="bg-green-500 text-white">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Completed
+              </Badge>
+            )}
             <ThemeToggle />
           </div>
         </div>
 
-        {/* New Badge Alert */}
-        {showBadgeAlert && newBadges.length > 0 && (
-          <Alert className="mb-6 border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-            <Trophy className="h-4 w-4" />
-            <AlertTitle>New Badge{newBadges.length > 1 ? "s" : ""} Earned!</AlertTitle>
-            <AlertDescription>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {newBadges.map((badgeId) => {
-                  const badge = BADGES[badgeId as keyof typeof BADGES]
-                  return (
-                    <Badge key={badgeId} className={`${badge.color} text-white`}>
-                      {badge.icon} {badge.name}
-                    </Badge>
-                  )
-                })}
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <div className="grid gap-6 lg:grid-cols-5">
+        <div className="grid lg:grid-cols-2 gap-6">
           {/* Problem Description */}
-          <div className="lg:col-span-2">
-            <Card className="h-fit">
+          <div className="space-y-6">
+            <Card>
               <CardHeader>
-                <div className="flex justify-between items-start">
-                  <CardTitle className="text-xl">{problem.title}</CardTitle>
-                  {completed && <CheckCircle className="h-6 w-6 text-green-500" />}
-                </div>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  <Badge variant="secondary">{problem.level}</Badge>
-                  {problem.tags.map((tag) => (
-                    <Badge key={tag} variant="outline">
-                      {tag}
-                    </Badge>
-                  ))}
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <CardTitle className="text-2xl">{problem.title}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        className={`${getDifficultyColor(
+                          problem.level
+                        )} text-white`}
+                      >
+                        {problem.level.charAt(0).toUpperCase() +
+                          problem.level.slice(1)}
+                      </Badge>
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Target className="h-4 w-4" />
+                        Attempts: {attempts}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="description" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="description">
-                      <FileText className="h-4 w-4 mr-2" />
-                      Description
-                    </TabsTrigger>
-                    <TabsTrigger value="hints" onClick={handleHintView}>
-                      <Lightbulb className="h-4 w-4 mr-2" />
-                      Hints {hintsViewed && <Eye className="h-3 w-3 ml-1" />}
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="description" className="mt-4 space-y-4">
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      <p className="text-foreground">{problem.description}</p>
-
-                      {problem.examples && (
-                        <div>
-                          <h3 className="text-lg font-medium mt-4 mb-2">Examples:</h3>
-                          <pre className="bg-muted p-4 rounded-md overflow-x-auto text-sm border">
-                            <code>{problem.examples}</code>
-                          </pre>
-                        </div>
-                      )}
-
-                      {problem.constraints && (
-                        <div>
-                          <h3 className="text-lg font-medium mt-4 mb-2">Constraints:</h3>
-                          <ul className="list-disc pl-5 space-y-1">
-                            {problem.constraints.map((constraint, i) => (
-                              <li key={i} className="text-foreground">
-                                {constraint}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="hints" className="mt-4">
-                    <div className="space-y-3">
-                      <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-                        <Eye className="h-4 w-4" />
-                        <AlertTitle>Viewing Hints</AlertTitle>
-                        <AlertDescription>
-                          Using hints will be tracked in your progress. Try solving independently first!
-                        </AlertDescription>
-                      </Alert>
-                      {problem.hints.map((hint, i) => (
-                        <div key={i} className="p-4 bg-muted/50 rounded-md border">
-                          <p className="font-medium text-sm text-muted-foreground">Hint {i + 1}:</p>
-                          <p className="mt-1 text-foreground">{hint}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                <CardDescription className="text-base leading-relaxed">
+                  {problem.description}
+                </CardDescription>
               </CardContent>
             </Card>
+
+            <Tabs defaultValue="examples" className="w-full">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="examples">Examples</TabsTrigger>
+                <TabsTrigger value="constraints">Constraints</TabsTrigger>
+                <TabsTrigger value="hints">Hints</TabsTrigger>
+                <TabsTrigger value="tags">Tags</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="examples" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Examples</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {problem.examples ? (
+                      <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
+                        <code>{problem.examples}</code>
+                      </pre>
+                    ) : (
+                      <p className="text-muted-foreground">
+                        No examples provided.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="constraints" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Constraints</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {problem.constraints && problem.constraints.length > 0 ? (
+                      <ul className="space-y-2">
+                        {problem.constraints.map((constraint, index) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-muted-foreground">•</span>
+                            <span className="text-sm">{constraint}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-muted-foreground">
+                        No constraints specified.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="hints" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Lightbulb className="h-5 w-5" />
+                        Hints
+                      </CardTitle>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={toggleHints}
+                        className="flex items-center gap-2"
+                      >
+                        {showHints ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                        {showHints ? 'Hide' : 'Show'} Hints
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {showHints ? (
+                      <div className="space-y-4">
+                        {hintsViewed && (
+                          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                              💡 Viewing hints may affect your achievement
+                              progress.
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="bg-muted p-4 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium">
+                              Hint {currentHintIndex + 1} of{' '}
+                              {problem.hints.length}
+                            </span>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={prevHint}
+                                disabled={currentHintIndex === 0}
+                              >
+                                Previous
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={nextHint}
+                                disabled={
+                                  currentHintIndex === problem.hints.length - 1
+                                }
+                              >
+                                Next
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="text-sm">
+                            {problem.hints[currentHintIndex]}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">
+                        Click "Show Hints" to reveal helpful tips for solving
+                        this problem.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="tags" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Tags</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {problem.tags.map((tag) => (
+                        <Badge key={tag} variant="outline">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </div>
 
-          {/* Code Editor */}
-          <div className="lg:col-span-3">
-            <Card className="h-full flex flex-col">
+          {/* Code Editor and Output */}
+          <div className="space-y-6">
+            <Card>
               <CardHeader>
-                <CardTitle>Solution</CardTitle>
-                <CardDescription>Write your JavaScript code below and run it to test your solution</CardDescription>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Code Editor</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={resetCode}
+                      className="flex items-center gap-2"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Reset
+                    </Button>
+                    <Button
+                      onClick={runCode}
+                      disabled={isRunning}
+                      className="flex items-center gap-2"
+                    >
+                      {isRunning ? (
+                        <Clock className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                      {isRunning ? 'Running...' : 'Run Code'}
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="flex-grow">
-                <MonacoEditor value={code} onChange={setCode} language="javascript" height="450px" />
+              <CardContent className="p-0">
+                <CodeEditor
+                  value={code}
+                  onChange={setCode}
+                  language="javascript"
+                  height="400px"
+                />
               </CardContent>
-              <CardFooter className="flex flex-col items-stretch gap-4">
-                <Button onClick={runCode} disabled={isRunning} className="w-full" size="lg">
-                  <Play className="mr-2 h-4 w-4" />
-                  {isRunning ? "Running Tests..." : "Run Code"}
-                </Button>
+            </Card>
 
-                {result && (
-                  <Alert variant={result.success ? "default" : "destructive"} className="border-2">
-                    {result.success ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-                    <AlertTitle className="font-semibold">{result.success ? "Success!" : "Error"}</AlertTitle>
-                    <AlertDescription className="mt-1">{result.message}</AlertDescription>
-                  </Alert>
-                )}
+            {/* Output */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  {testResults?.passed ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : testResults?.passed === false ? (
+                    <XCircle className="h-5 w-5 text-red-500" />
+                  ) : null}
+                  Output
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-32 w-full">
+                  <pre className="text-sm font-mono whitespace-pre-wrap">
+                    {output || 'Run your code to see the output...'}
+                  </pre>
+                </ScrollArea>
 
-                {/* Next Problem Button */}
-                {completed && nextProblem && (
-                  <div className="pt-2">
-                    {isNextUnlocked ? (
-                      <Link href={`/problem/${nextProblem.id}`} className="w-full">
-                        <Button className="w-full" variant="outline">
-                          Next Problem: {nextProblem.title}
-                          <ArrowRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      </Link>
-                    ) : (
-                      <Alert>
-                        <CheckCircle className="h-4 w-4" />
-                        <AlertTitle>Problem Completed!</AlertTitle>
-                        <AlertDescription>
-                          Great job! You've unlocked the next problem: <strong>{nextProblem.title}</strong>
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                {testResults && (
+                  <div className="mt-4">
+                    <Separator className="mb-4" />
+                    <div
+                      className={`p-3 rounded-lg ${
+                        testResults.passed
+                          ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                          : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                      }`}
+                    >
+                      <p
+                        className={`text-sm font-medium ${
+                          testResults.passed
+                            ? 'text-green-800 dark:text-green-200'
+                            : 'text-red-800 dark:text-red-200'
+                        }`}
+                      >
+                        {testResults.message}
+                      </p>
+
+                      {testResults.passed && !isCompleted && (
+                        <div className="mt-2 flex items-center gap-2 text-green-700 dark:text-green-300">
+                          <Trophy className="h-4 w-4" />
+                          <span className="text-sm">
+                            Problem completed! Progress saved.
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
-
-                {/* Level Completed */}
-                {completed && !nextProblem && (
-                  <Alert>
-                    <Trophy className="h-4 w-4" />
-                    <AlertTitle>Level Completed!</AlertTitle>
-                    <AlertDescription>
-                      Congratulations! You've completed all problems in the {problem.level} level.
-                      {problem.level === "beginner" && <p className="mt-2">You've unlocked the Intermediate level!</p>}
-                      {problem.level === "intermediate" && <p className="mt-2">You've unlocked the Advanced level!</p>}
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </CardFooter>
+              </CardContent>
             </Card>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

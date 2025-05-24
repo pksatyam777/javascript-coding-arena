@@ -1,97 +1,158 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, CheckCircle, Circle, Lock, Trophy, Play } from "lucide-react"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { problems } from "@/lib/problems"
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import {
+  ArrowLeft,
+  CheckCircle,
+  Circle,
+  Lock,
+  Trophy,
+  Play,
+  Loader2
+} from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { problems } from '@/lib/problems';
 import {
   getUserProgress,
   isProblemUnlocked,
   getLevelStats,
   getNextUnlockedProblem,
-  isLevelUnlocked,
-} from "@/lib/user-progress"
+  isLevelUnlocked
+} from '@/lib/user-progress';
 
 export default function ProblemsPage() {
-  const params = useParams()
-  const router = useRouter()
-  const level = params.level as string
-  const [progress, setProgress] = useState<Record<string, boolean>>({})
-  const [isLevelLocked, setIsLevelLocked] = useState(true)
+  const params = useParams();
+  const router = useRouter();
+  const level = params.level as string;
+  const [progress, setProgress] = useState<Record<string, boolean>>({});
+  const [isLevelLocked, setIsLevelLocked] = useState<boolean | null>(null); // null = loading
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const userProgress = getUserProgress()
-    setProgress(userProgress.completedProblems || {})
-    setIsLevelLocked(!isLevelUnlocked(level))
-  }, [level])
+    // Add a small delay to ensure we're on the client side
+    const initializeProgress = () => {
+      try {
+        const userProgress = getUserProgress();
+        setProgress(userProgress.completedProblems || {});
 
-  // Redirect if level is locked
+        // Check if level exists and is valid
+        const validLevels = ['beginner', 'intermediate', 'advanced'];
+        if (!validLevels.includes(level)) {
+          setIsLevelLocked(true);
+          setIsLoading(false);
+          return;
+        }
+
+        const levelUnlocked = isLevelUnlocked(level);
+        setIsLevelLocked(!levelUnlocked);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error loading user progress:', error);
+        // Don't redirect on error, just show the problems
+        setIsLevelLocked(false);
+        setIsLoading(false);
+      }
+    };
+
+    // Small timeout to ensure client-side rendering
+    const timer = setTimeout(initializeProgress, 100);
+    return () => clearTimeout(timer);
+  }, [level]);
+
+  // Only redirect after we've determined the level is actually locked AND it's not beginner
   useEffect(() => {
-    if (isLevelLocked) {
-      router.push("/")
+    if (isLevelLocked === true && !isLoading && level !== 'beginner') {
+      router.push('/dashboard');
     }
-  }, [isLevelLocked, router])
+  }, [isLevelLocked, isLoading, router, level]);
+
+  // Show loading state while determining access
+  if (isLoading || isLevelLocked === null) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="pt-6">
+            <div className="text-center space-y-4">
+              <Loader2 className="h-8 w-8 mx-auto animate-spin text-muted-foreground" />
+              <p className="text-muted-foreground">Loading problems...</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Filter problems by level
-  const levelProblems = problems.filter((problem) => problem.level === level)
-  const stats = getLevelStats(level, problems)
-  const nextUnlocked = getNextUnlockedProblem(level, problems)
+  const levelProblems = problems.filter((problem) => problem.level === level);
+  const stats = getLevelStats(level, problems);
+  const nextUnlocked = getNextUnlockedProblem(level, problems);
 
   // Get level title and description
   const getLevelInfo = () => {
     switch (level) {
-      case "beginner":
+      case 'beginner':
         return {
-          title: "Beginner Challenges",
+          title: 'Beginner Challenges',
           subtitle: `${levelProblems.length} Problems`,
-          description: "Master the fundamentals of JavaScript with these beginner-friendly challenges",
-          color: "text-blue-500",
-        }
-      case "intermediate":
+          description:
+            'Master the fundamentals of JavaScript with these beginner-friendly challenges',
+          color: 'text-blue-500'
+        };
+      case 'intermediate':
         return {
-          title: "Intermediate Challenges",
+          title: 'Intermediate Challenges',
           subtitle: `${levelProblems.length} Problems`,
-          description: "Dive deeper into arrays, objects, and functions with intermediate challenges",
-          color: "text-green-500",
-        }
-      case "advanced":
+          description:
+            'Dive deeper into arrays, objects, and functions with intermediate challenges',
+          color: 'text-green-500'
+        };
+      case 'advanced':
         return {
-          title: "Advanced Challenges",
+          title: 'Advanced Challenges',
           subtitle: `${levelProblems.length} Problems`,
-          description: "Tackle complex algorithms and advanced problem-solving challenges",
-          color: "text-purple-500",
-        }
+          description:
+            'Tackle complex algorithms and advanced problem-solving challenges',
+          color: 'text-purple-500'
+        };
       default:
         return {
-          title: "Challenges",
-          subtitle: "",
-          description: "JavaScript coding challenges",
-          color: "text-foreground",
-        }
+          title: 'Challenges',
+          subtitle: '',
+          description: 'JavaScript coding challenges',
+          color: 'text-foreground'
+        };
     }
-  }
+  };
 
-  const levelInfo = getLevelInfo()
+  const levelInfo = getLevelInfo();
 
   const handleProblemClick = (problemId: string) => {
     if (isProblemUnlocked(problemId, problems)) {
-      router.push(`/problem/${problemId}`)
+      router.push(`/problem/${problemId}`);
     }
-  }
+  };
 
   const handleContinueClick = () => {
     if (nextUnlocked) {
-      router.push(`/problem/${nextUnlocked}`)
+      router.push(`/problem/${nextUnlocked}`);
     }
-  }
+  };
 
-  if (isLevelLocked) {
+  // Show locked state (this should rarely be reached due to redirect)
+  if (isLevelLocked && level !== 'beginner') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="max-w-md mx-auto">
@@ -99,13 +160,13 @@ export default function ProblemsPage() {
             <Lock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <CardTitle>Level Locked</CardTitle>
             <CardDescription>
-              {level === "intermediate"
-                ? "Complete all beginner problems to unlock intermediate challenges."
-                : "Complete all intermediate problems to unlock advanced challenges."}
+              {level === 'intermediate'
+                ? 'Complete all beginner problems to unlock intermediate challenges.'
+                : 'Complete all intermediate problems to unlock advanced challenges.'}
             </CardDescription>
           </CardHeader>
           <CardFooter>
-            <Link href="/" className="w-full">
+            <Link href="/dashboard" className="w-full">
               <Button className="w-full">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Dashboard
@@ -114,7 +175,7 @@ export default function ProblemsPage() {
           </CardFooter>
         </Card>
       </div>
-    )
+    );
   }
 
   return (
@@ -122,7 +183,7 @@ export default function ProblemsPage() {
       <div className="container mx-auto py-10 px-4">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <Link href="/">
+          <Link href="/dashboard">
             <Button variant="ghost" className="pl-0">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Dashboard
@@ -139,7 +200,9 @@ export default function ProblemsPage() {
               {levelInfo.subtitle}
             </Badge>
           </div>
-          <p className="text-muted-foreground text-lg mb-6">{levelInfo.description}</p>
+          <p className="text-muted-foreground text-lg mb-6">
+            {levelInfo.description}
+          </p>
 
           {/* Progress Card */}
           <Card className="mb-8">
@@ -176,7 +239,11 @@ export default function ProblemsPage() {
               </div>
               {nextUnlocked && (
                 <div className="pt-2">
-                  <Button onClick={handleContinueClick} className="w-full" size="sm">
+                  <Button
+                    onClick={handleContinueClick}
+                    className="w-full"
+                    size="sm"
+                  >
                     <Play className="h-4 w-4 mr-2" />
                     Continue Next Problem
                   </Button>
@@ -189,21 +256,27 @@ export default function ProblemsPage() {
         {/* Problems Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {levelProblems.map((problem, index) => {
-            const isCompleted = progress[problem.id]
-            const isUnlocked = isProblemUnlocked(problem.id, problems)
-            const isLocked = !isUnlocked
+            const isCompleted = progress[problem.id];
+            const isUnlocked = isProblemUnlocked(problem.id, problems);
+            const isLocked = !isUnlocked;
 
             return (
               <Card
                 key={problem.id}
                 className={`flex flex-col transition-all duration-200 ${
-                  isLocked ? "opacity-60 cursor-not-allowed" : "hover:shadow-lg cursor-pointer"
+                  isLocked
+                    ? 'opacity-60 cursor-not-allowed'
+                    : 'hover:shadow-lg cursor-pointer'
                 }`}
                 onClick={() => handleProblemClick(problem.id)}
               >
                 <CardHeader>
                   <div className="flex justify-between items-start">
-                    <CardTitle className={`text-lg leading-tight ${isLocked ? "text-muted-foreground" : ""}`}>
+                    <CardTitle
+                      className={`text-lg leading-tight ${
+                        isLocked ? 'text-muted-foreground' : ''
+                      }`}
+                    >
                       {index + 1}. {problem.title}
                     </CardTitle>
                     <div className="flex-shrink-0">
@@ -216,9 +289,13 @@ export default function ProblemsPage() {
                       )}
                     </div>
                   </div>
-                  <CardDescription className={`line-clamp-2 ${isLocked ? "text-muted-foreground/60" : ""}`}>
+                  <CardDescription
+                    className={`line-clamp-2 ${
+                      isLocked ? 'text-muted-foreground/60' : ''
+                    }`}
+                  >
                     {isLocked
-                      ? "Complete the previous problem to unlock"
+                      ? 'Complete the previous problem to unlock'
                       : `${problem.description.substring(0, 120)}...`}
                   </CardDescription>
                 </CardHeader>
@@ -227,7 +304,11 @@ export default function ProblemsPage() {
                     {!isLocked ? (
                       <>
                         {problem.tags.slice(0, 3).map((tag) => (
-                          <Badge key={tag} variant="outline" className="text-xs">
+                          <Badge
+                            key={tag}
+                            variant="outline"
+                            className="text-xs"
+                          >
                             {tag}
                           </Badge>
                         ))}
@@ -249,10 +330,10 @@ export default function ProblemsPage() {
                   <Button
                     className="w-full"
                     onClick={(e) => {
-                      e.stopPropagation()
-                      handleProblemClick(problem.id)
+                      e.stopPropagation();
+                      handleProblemClick(problem.id);
                     }}
-                    variant={isCompleted ? "outline" : "default"}
+                    variant={isCompleted ? 'outline' : 'default'}
                     disabled={isLocked}
                   >
                     {isLocked ? (
@@ -261,20 +342,22 @@ export default function ProblemsPage() {
                         Locked
                       </>
                     ) : isCompleted ? (
-                      "Review Solution"
+                      'Review Solution'
                     ) : (
-                      "Solve Challenge"
+                      'Solve Challenge'
                     )}
                   </Button>
                 </CardFooter>
               </Card>
-            )
+            );
           })}
         </div>
 
         {levelProblems.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-muted-foreground">No problems found for this level.</p>
+            <p className="text-muted-foreground">
+              No problems found for this level.
+            </p>
           </div>
         )}
 
@@ -286,8 +369,9 @@ export default function ProblemsPage() {
                 <Lock className="h-8 w-8 mx-auto text-muted-foreground" />
                 <h3 className="font-semibold">More Problems to Unlock!</h3>
                 <p className="text-sm text-muted-foreground">
-                  Complete problems in order to unlock the next challenges. You have {stats.total - stats.unlocked} more
-                  problems to discover in this level.
+                  Complete problems in order to unlock the next challenges. You
+                  have {stats.total - stats.unlocked} more problems to discover
+                  in this level.
                 </p>
               </div>
             </CardContent>
@@ -295,5 +379,5 @@ export default function ProblemsPage() {
         )}
       </div>
     </div>
-  )
+  );
 }
