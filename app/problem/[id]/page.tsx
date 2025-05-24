@@ -29,13 +29,15 @@ import {
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import CodeEditor from '@/components/monaco-editor';
+import CongratulationsDialog from '@/components/congratulations-dialog';
 import { problems, type Problem } from '@/lib/problems';
 import {
   getUserProgress,
   updateUserProgress,
   trackProblemAttempt,
   trackHintUsage,
-  isProblemUnlocked
+  isProblemUnlocked,
+  getNextUnlockedProblem
 } from '@/lib/user-progress';
 
 export default function ProblemDetailsPage() {
@@ -58,6 +60,17 @@ export default function ProblemDetailsPage() {
   const [currentHintIndex, setCurrentHintIndex] = useState(0);
   const [attempts, setAttempts] = useState(0);
 
+  // Congratulations dialog state
+  const [showCongratulations, setShowCongratulations] = useState(false);
+  const [congratsData, setCongratsData] = useState<{
+    solveTime: number;
+    attempts: number;
+    hintsUsed: boolean;
+    newBadges: string[];
+    isFirstAttempt: boolean;
+    nextProblemId?: string | null;
+  } | null>(null);
+
   useEffect(() => {
     // Find the problem
     const foundProblem = problems.find((p) => p.id === problemId);
@@ -79,6 +92,12 @@ export default function ProblemDetailsPage() {
     // Check if already completed
     const progress = getUserProgress();
     setIsCompleted(!!progress.completedProblems[problemId]);
+
+    // Load existing stats if available
+    if (progress.problemStats[problemId]) {
+      setAttempts(progress.problemStats[problemId].attempts || 0);
+      setHintsViewed(progress.problemStats[problemId].hintsViewed || false);
+    }
   }, [problemId, router]);
 
   const runCode = async () => {
@@ -91,7 +110,8 @@ export default function ProblemDetailsPage() {
     try {
       // Track attempt
       trackProblemAttempt(problemId, startTime);
-      setAttempts((prev) => prev + 1);
+      const newAttempts = attempts + 1;
+      setAttempts(newAttempts);
 
       // Create a function that combines user code with test code
       const fullCode = `
@@ -109,8 +129,38 @@ export default function ProblemDetailsPage() {
 
         // Mark as completed and update progress
         if (!isCompleted) {
-          updateUserProgress(problemId, problems, startTime);
+          const solveTime = Math.round((Date.now() - startTime) / (1000 * 60)); // minutes
+          const isFirstAttempt = newAttempts === 1;
+
+          // Get current badges before updating progress
+          const currentProgress = getUserProgress();
+          const currentBadges = currentProgress.earnedBadges || [];
+
+          // Update progress and get new state
+          const updatedProgress = updateUserProgress(
+            problemId,
+            problems,
+            startTime
+          );
+          const newBadges = updatedProgress.earnedBadges.filter(
+            (badge) => !currentBadges.includes(badge)
+          );
+
+          // Get next problem
+          const nextProblemId = getNextUnlockedProblem(problem.level, problems);
+
           setIsCompleted(true);
+
+          // Show congratulations dialog
+          setCongratsData({
+            solveTime,
+            attempts: newAttempts,
+            hintsUsed: hintsViewed,
+            newBadges,
+            isFirstAttempt,
+            nextProblemId
+          });
+          setShowCongratulations(true);
         }
       } else {
         setTestResults({
@@ -502,6 +552,22 @@ export default function ProblemDetailsPage() {
             </Card>
           </div>
         </div>
+
+        {/* Congratulations Dialog */}
+        {showCongratulations && congratsData && (
+          <CongratulationsDialog
+            isOpen={showCongratulations}
+            onClose={() => setShowCongratulations(false)}
+            problemTitle={problem.title}
+            problemLevel={problem.level}
+            solveTime={congratsData.solveTime}
+            attempts={congratsData.attempts}
+            hintsUsed={congratsData.hintsUsed}
+            newBadges={congratsData.newBadges}
+            isFirstAttempt={congratsData.isFirstAttempt}
+            nextProblemId={congratsData.nextProblemId}
+          />
+        )}
       </div>
     </div>
   );
