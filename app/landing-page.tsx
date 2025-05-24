@@ -140,7 +140,7 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="container mx-auto px-4 py-20 text-center">
         <div className="max-w-4xl mx-auto">
-          <Badge className="mb-6 bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 border-blue-200">
+          <Badge className="mb-6 bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-100 border-blue-200">
             🚀 Master JavaScript Through Practice
           </Badge>
 
